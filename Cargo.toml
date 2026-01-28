@@ -1,6 +1,6 @@
 [package]
 name = "orasort"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Theo M. Bulut <vertexclique@gmail.com>"]
 description = "High-performance, cache-efficient sorting library optimized for common prefixes."
