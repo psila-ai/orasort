@@ -1,0 +1,34 @@
+[package]
+name = "orasort"
+version = "0.1.0"
+edition = "2024"
+authors = ["Theo M. Bulut <vertexclique@gmail.com>"]
+description = "High-performance, cache-efficient sorting library optimized for common prefixes."
+homepage = "https://github.com/psila-ai/orasort"
+documentation = "https://docs.rs/orasort"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/psila-ai/orasort"
+keywords = ["sort", "sorting", "performance", "cache-oblivious", "radix"]
+categories = ["algorithms", "data-structures"]
+
+[dependencies]
+cuneiform = "0.1.1"
+
+[dev-dependencies]
+rand = "0.9"
+criterion = "0.8"
+
+[[bench]]
+name = "sorting_benchmark"
+harness = false
+
+[[bench]]
+name = "large_scale_benchmark"
+harness = false
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

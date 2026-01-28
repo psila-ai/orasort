@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="650" viewBox="0 0 900 650">
+  <defs>
+    <linearGradient id="orasort" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#10b981"/>
+      <stop offset="100%" style="stop-color:#059669"/>
+    </linearGradient>
+    <linearGradient id="stable" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="unstable" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#d97706"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="104%">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="900" height="650" fill="#0f172a"/>
+  
+  <!-- Title -->
+  <text x="450" y="40" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="24" font-weight="bold">Sorting Benchmark Results</text>
+  
+  <!-- Legend -->
+  <g transform="translate(580, 60)">
+    <rect x="0" y="0" width="16" height="16" fill="url(#orasort)" rx="3"/>
+    <text x="22" y="13" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="12">orasort (in-place)</text>
+    <rect x="0" y="24" width="16" height="16" fill="url(#stable)" rx="3"/>
+    <text x="22" y="37" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="12">slice::sort (stable)</text>
+    <rect x="0" y="48" width="16" height="16" fill="url(#unstable)" rx="3"/>
+    <text x="22" y="61" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="12">slice::sort_unstable</text>
+  </g>
+
+  <!-- 1M Strings Section -->
+  <!-- orasort best: 682.36ms @ 85.384 MiB/s, stable worst: 1161.5ms @ 50.161 MiB/s, unstable worst: 960.5ms @ 60.658 MiB/s -->
+  <g transform="translate(50, 110)">
+    <text x="0" y="0" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="14" font-weight="600">1M Strings (Large Scale)</text>
+    <text x="0" y="18" fill="#64748b" font-family="system-ui, sans-serif" font-size="11">Time in milliseconds (lower is better)</text>
+    
+    <!-- Bars - scaled: 1161.5ms = 500px -->
+    <g transform="translate(0, 35)">
+      <rect x="0" y="0" width="200" height="32" fill="url(#orasort)" rx="4" filter="url(#shadow)"/>
+      <text x="210" y="21" fill="#10b981" font-family="system-ui, sans-serif" font-size="13" font-weight="600">610.4 ms</text>
+      <text x="304" y="21" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11">95.5 MiB/s</text>
+      
+      <rect x="0" y="42" width="500" height="32" fill="url(#stable)" rx="4" filter="url(#shadow)"/>
+      <text x="510" y="63" fill="#6366f1" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1161.5 ms</text>
+      <text x="620" y="63" fill="#a5b4fc" font-family="system-ui, sans-serif" font-size="11">50.2 MiB/s</text>
+      
+      <rect x="0" y="84" width="413" height="32" fill="url(#unstable)" rx="4" filter="url(#shadow)"/>
+      <text x="423" y="105" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="13" font-weight="600">960.5 ms</text>
+      <text x="523" y="105" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="11">60.7 MiB/s</text>
+    </g>
+    
+    <!-- Speedup badge: 1161.5 / 682.36 = 1.70x -->
+    <g transform="translate(550, 35)">
+      <rect x="0" y="0" width="70" height="24" fill="#065f46" rx="12"/>
+      <text x="35" y="16" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">~2.0x faster</text>
+    </g>
+  </g>
+
+  <!-- String Sort Section -->
+  <!-- orasort best: 1.0099ms, stable worst: 1.454ms, unstable worst: 1.3019ms -->
+  <g transform="translate(50, 295)">
+    <text x="0" y="0" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="14" font-weight="600">String Sort (10K elements)</text>
+    <text x="0" y="18" fill="#64748b" font-family="system-ui, sans-serif" font-size="11">Time in milliseconds (lower is better)</text>
+    
+    <!-- Bars - scaled: 1.454ms = 500px -->
+    <g transform="translate(0, 35)">
+      <rect x="0" y="0" width="347" height="32" fill="url(#orasort)" rx="4" filter="url(#shadow)"/>
+      <text x="357" y="21" fill="#10b981" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.010 ms</text>
+      
+      <rect x="0" y="42" width="500" height="32" fill="url(#stable)" rx="4" filter="url(#shadow)"/>
+      <text x="510" y="63" fill="#6366f1" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.454 ms</text>
+      
+      <rect x="0" y="84" width="448" height="32" fill="url(#unstable)" rx="4" filter="url(#shadow)"/>
+      <text x="458" y="105" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.302 ms</text>
+    </g>
+    
+    <!-- Speedup badge: 1.454 / 1.0099 = 1.44x -->
+    <g transform="translate(550, 35)">
+      <rect x="0" y="0" width="70" height="24" fill="#065f46" rx="12"/>
+      <text x="35" y="16" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">1.44x faster</text>
+    </g>
+  </g>
+
+  <!-- Long Common Prefix Section -->
+  <!-- orasort best: 1.2968ms, stable worst: 1.4936ms, unstable worst: 1.3325ms -->
+  <g transform="translate(50, 480)">
+    <text x="0" y="0" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="14" font-weight="600">Long Common Prefix</text>
+    <text x="0" y="18" fill="#64748b" font-family="system-ui, sans-serif" font-size="11">Time in milliseconds (lower is better)</text>
+    
+    <!-- Bars - scaled: 1.4936ms = 500px -->
+    <g transform="translate(0, 35)">
+      <rect x="0" y="0" width="434" height="32" fill="url(#orasort)" rx="4" filter="url(#shadow)"/>
+      <text x="444" y="21" fill="#10b981" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.297 ms</text>
+      
+      <rect x="0" y="42" width="500" height="32" fill="url(#stable)" rx="4" filter="url(#shadow)"/>
+      <text x="510" y="63" fill="#6366f1" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.494 ms</text>
+      
+      <rect x="0" y="84" width="446" height="32" fill="url(#unstable)" rx="4" filter="url(#shadow)"/>
+      <text x="456" y="105" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="13" font-weight="600">1.333 ms</text>
+    </g>
+    
+    <!-- Speedup badge: 1.4936 / 1.2968 = 1.15x -->
+    <g transform="translate(550, 35)">
+      <rect x="0" y="0" width="70" height="24" fill="#065f46" rx="12"/>
+      <text x="35" y="16" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">1.15x faster</text>
+    </g>
+  </g>
+</svg>
