@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 
 /// Size of the prefix to be cached in the sort pointer.
-const SPLICE_PREFIX_SIZE: usize = 8;
+pub const SPLICE_PREFIX_SIZE: usize = 8;
 
 /// Pointer to an item, storing index and cached 8-byte key prefix.
 #[repr(C)]

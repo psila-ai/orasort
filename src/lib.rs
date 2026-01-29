@@ -80,8 +80,9 @@ pub mod algo;
 pub mod core;
 pub use algo::{orasort, orasort_from_indices, orasort_mut, orasort_slice};
 pub use core::KeyAccessor;
+pub use core::SPLICE_PREFIX_SIZE;
 
 pub mod prelude {
     pub use crate::algo::{orasort, orasort_from_indices, orasort_mut};
-    pub use crate::core::KeyAccessor;
+    pub use crate::core::{KeyAccessor, SPLICE_PREFIX_SIZE};
 }
