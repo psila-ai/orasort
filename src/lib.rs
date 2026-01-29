@@ -83,6 +83,8 @@ pub use core::KeyAccessor;
 pub use core::SPLICE_PREFIX_SIZE;
 
 pub mod prelude {
+    //! Prelude for Orasort.
+
     pub use crate::algo::{orasort, orasort_from_indices, orasort_mut};
     pub use crate::core::{KeyAccessor, SPLICE_PREFIX_SIZE};
 }
