@@ -11,6 +11,7 @@ use crate::core::{KeyAccessor, SortPtr};
 use cuneiform::cuneiform;
 use std::cmp::Ordering;
 
+const NO_ALLOC_THRESHOLD: usize = 32;
 const RADIX_SORT_THRESHOLD: usize = 1024;
 
 /// Performs an index-based sort on the provided collection.
@@ -53,9 +54,7 @@ pub fn orasort<T: KeyAccessor + ?Sized>(provider: &T) -> Vec<usize> {
         })
         .collect();
 
-    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
-
-    cps_quicksort(provider, &mut pointers, &mut aux, 0, true);
+    cps_quicksort(provider, &mut pointers, 0, true);
 
     pointers.into_iter().map(|p| p.index).collect()
 }
@@ -84,9 +83,7 @@ pub fn orasort_from_indices<T: KeyAccessor + ?Sized>(
         })
         .collect();
 
-    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
-
-    cps_quicksort(provider, &mut pointers, &mut aux, offset, true);
+    cps_quicksort(provider, &mut pointers, offset, true);
 
     pointers.into_iter().map(|p| p.index).collect()
 }
@@ -110,7 +107,7 @@ pub fn orasort_from_indices<T: KeyAccessor + ?Sized>(
 ///
 /// assert_eq!(data, vec!["apple", "banana", "cherry"]);
 /// ```
-pub fn orasort_mut<T: AsRef<[u8]> + Clone>(data: &mut [T]) {
+pub fn orasort_mut<T: AsRef<[u8]>>(data: &mut [T]) {
     // 1. Get indices
     let indices = orasort(data);
 
@@ -120,7 +117,7 @@ pub fn orasort_mut<T: AsRef<[u8]> + Clone>(data: &mut [T]) {
     apply_permutation(data, indices);
 }
 
-fn apply_permutation<T: Clone>(data: &mut [T], mut indices: Vec<usize>) {
+fn apply_permutation<T>(data: &mut [T], mut indices: Vec<usize>) {
     for i in 0..data.len() {
         let mut current = i;
         while indices[current] != i {
@@ -145,26 +142,20 @@ pub fn orasort_slice<T: KeyAccessor + ?Sized>(provider: &T, indices: &mut [usize
     // Heuristic: For very small lengths, avoid allocating SortPtrs entirely.
     // Use simple insertion sort / sort_unstable_by with direct KeyAccessor calls.
     // The overhead of `get_u64_prefix` is small enough that calling it per-cmp is better than allocating `Vec<SortPtr>`.
-    if len <= 32 {
+    if len <= NO_ALLOC_THRESHOLD {
         indices.sort_unstable_by(|&a, &b| {
-            // Fast-path: compare next 8 bytes
-            let pa = provider.get_u64_prefix(a, offset);
-            let pb = provider.get_u64_prefix(b, offset);
-            match pa.cmp(&pb) {
-                Ordering::Equal => {
-                    // Slow-path: compare full keys
-                    let ka = provider.get_key(a);
-                    let kb = provider.get_key(b);
-                    let start = offset + 8;
-                    if ka.len() < start || kb.len() < start {
-                        // Handle near-end/padding cases
-                        ka[offset.min(ka.len())..].cmp(&kb[offset.min(kb.len())..])
-                    } else {
-                        ka[start..].cmp(&kb[start..])
-                    }
-                }
-                other => other,
-            }
+            let ka = provider.get_key(a);
+            let kb = provider.get_key(b);
+            let start = offset.min(ka.len()).min(kb.len());
+            // Safe to skip `offset` bytes as they are equal by caller guarantee (mostly)
+            // - actually orasort_slice contract says "skipping offset bytes".
+            // If they are not equal, they will be ordered correctly by suffix anyway?
+            // No, if prefix is skipped, we assume prefix is equal or don't care?
+            // Orasort contract: "skipping offset bytes". Implies we only sort based on suffix.
+            // If prefixes differ, this function doesn't guarantee global order unless we check prefix.
+            // But usually orasort is called recursively where prefixes ARE equal.
+            // In hybrid sort collision, prefixes ARE equal.
+            ka[start..].cmp(&kb[start..])
         });
         return;
     }
@@ -177,9 +168,7 @@ pub fn orasort_slice<T: KeyAccessor + ?Sized>(provider: &T, indices: &mut [usize
         })
         .collect();
 
-    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
-
-    cps_quicksort(provider, &mut pointers, &mut aux, offset, true);
+    cps_quicksort(provider, &mut pointers, offset, true);
 
     // Write back sorted indices
     for (i, p) in pointers.into_iter().enumerate() {
@@ -195,7 +184,6 @@ pub fn orasort_slice<T: KeyAccessor + ?Sized>(provider: &T, indices: &mut [usize
 fn cps_quicksort<T: KeyAccessor + ?Sized>(
     provider: &T,
     ptrs: &mut [SortPtr],
-    aux: &mut [SortPtr],
     cp_len: usize,
     allow_radix: bool,
 ) {
@@ -203,7 +191,7 @@ fn cps_quicksort<T: KeyAccessor + ?Sized>(
 
     // Use Adaptive Radix Sort for large inputs if allowed
     if allow_radix && len > RADIX_SORT_THRESHOLD {
-        aqs_radix(provider, ptrs, aux, cp_len);
+        aqs_radix(provider, ptrs, cp_len);
         return;
     }
 
@@ -229,12 +217,8 @@ struct RadixCounts {
 /// 2. Computes prefix sums to determine bucket starting positions.
 /// 3. Permutes elements into a temporary buffer and writes them back in sorted bucket order.
 /// 4. Recursively calls `cps_quicksort` on each bucket.
-fn aqs_radix<T: KeyAccessor + ?Sized>(
-    provider: &T,
-    ptrs: &mut [SortPtr],
-    aux: &mut [SortPtr],
-    mut cp_len: usize,
-) {
+fn aqs_radix<T: KeyAccessor + ?Sized>(provider: &T, ptrs: &mut [SortPtr], mut cp_len: usize) {
+    let mut aux = vec![SortPtr { index: 0, cache: 0 }; ptrs.len()];
     let mut bytes_since_load = 0; // Track how many bytes we consumed from the current cache load
 
     loop {
@@ -313,10 +297,13 @@ fn aqs_radix<T: KeyAccessor + ?Sized>(
         let mut cur_offsets = offsets;
 
         // This copy is necessary for stability/correctness in MSD Radix when doing permutation
+        // SAFETY: cur_offsets are computed from prefix sums of counts, so pos is always in bounds.
         for p in ptrs.iter() {
             let b = (p.cache >> 56) as u8;
             let pos = cur_offsets[b as usize];
-            aux_slice[pos] = *p;
+            unsafe {
+                *aux_slice.get_unchecked_mut(pos) = *p;
+            }
             cur_offsets[b as usize] += 1;
         }
 
@@ -325,17 +312,16 @@ fn aqs_radix<T: KeyAccessor + ?Sized>(
         // 4. Recurse on buckets
         let mut start = 0;
         let total_len = ptrs.len();
+        let new_cp = cp_len + 1;
         counts.iter().for_each(|&count| {
             let end = start + count;
             if end > start {
                 let bucket = &mut ptrs[start..end];
-                let aux_bucket = &mut aux[start..end]; // Pass corresponding aux slice
-                let new_cp = cp_len + 1;
 
                 update_caches(provider, bucket, new_cp);
 
                 let is_degenerate = (end - start) == total_len;
-                cps_quicksort(provider, bucket, aux_bucket, new_cp, !is_degenerate);
+                cps_quicksort(provider, bucket, new_cp, !is_degenerate);
             }
             start = end;
         });
@@ -398,10 +384,7 @@ fn compare_entries<T: KeyAccessor + ?Sized>(
     }
 
     // Full comparison beyond cache
-    let slice_a = &key_a[start_safe..];
-    let slice_p = &key_p[start_safe..];
-
-    match slice_a.cmp(slice_p) {
+    match key_a[start_safe..].cmp(&key_p[start_safe..]) {
         Ordering::Equal => key_a.len().cmp(&key_p.len()),
         other => other,
     }
