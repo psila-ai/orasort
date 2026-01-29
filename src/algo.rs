@@ -53,7 +53,40 @@ pub fn orasort<T: KeyAccessor + ?Sized>(provider: &T) -> Vec<usize> {
         })
         .collect();
 
-    cps_quicksort(provider, &mut pointers, 0, true);
+    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
+
+    cps_quicksort(provider, &mut pointers, &mut aux, 0, true);
+
+    pointers.into_iter().map(|p| p.index).collect()
+}
+
+/// Sorts the provided indices based on the key provider, skipping `offset` bytes.
+///
+/// This is used for hybrid sorting strategies where a preliminary sort (e.g., 4-byte prefix)
+/// has already partitioned the data, and we need to resolve collisions.
+pub fn orasort_from_indices<T: KeyAccessor + ?Sized>(
+    provider: &T,
+    indices: Vec<usize>,
+    offset: usize,
+) -> Vec<usize> {
+    let len = indices.len();
+    if len == 0 {
+        return vec![];
+    }
+
+    // Safety check: if offset is huge, get_u64_prefix handles it (returns 0).
+
+    let mut pointers: Vec<SortPtr> = indices
+        .into_iter()
+        .map(|index| {
+            let cache = provider.get_u64_prefix(index, offset);
+            SortPtr { index, cache }
+        })
+        .collect();
+
+    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
+
+    cps_quicksort(provider, &mut pointers, &mut aux, offset, true);
 
     pointers.into_iter().map(|p| p.index).collect()
 }
@@ -100,6 +133,60 @@ fn apply_permutation<T: Clone>(data: &mut [T], mut indices: Vec<usize>) {
     }
 }
 
+/// Sorts the provided indices in-place based on the key provider, skipping `offset` bytes.
+///
+/// Use this to avoid allocations when you already have a `Vec<usize>` or slice of indices.
+pub fn orasort_slice<T: KeyAccessor + ?Sized>(provider: &T, indices: &mut [usize], offset: usize) {
+    let len = indices.len();
+    if len == 0 {
+        return;
+    }
+
+    // Heuristic: For very small lengths, avoid allocating SortPtrs entirely.
+    // Use simple insertion sort / sort_unstable_by with direct KeyAccessor calls.
+    // The overhead of `get_u64_prefix` is small enough that calling it per-cmp is better than allocating `Vec<SortPtr>`.
+    if len <= 32 {
+        indices.sort_unstable_by(|&a, &b| {
+            // Fast-path: compare next 8 bytes
+            let pa = provider.get_u64_prefix(a, offset);
+            let pb = provider.get_u64_prefix(b, offset);
+            match pa.cmp(&pb) {
+                Ordering::Equal => {
+                    // Slow-path: compare full keys
+                    let ka = provider.get_key(a);
+                    let kb = provider.get_key(b);
+                    let start = offset + 8;
+                    if ka.len() < start || kb.len() < start {
+                        // Handle near-end/padding cases
+                        ka[offset.min(ka.len())..].cmp(&kb[offset.min(kb.len())..])
+                    } else {
+                        ka[start..].cmp(&kb[start..])
+                    }
+                }
+                other => other,
+            }
+        });
+        return;
+    }
+
+    let mut pointers: Vec<SortPtr> = indices
+        .iter()
+        .map(|&index| {
+            let cache = provider.get_u64_prefix(index, offset);
+            SortPtr { index, cache }
+        })
+        .collect();
+
+    let mut aux = vec![SortPtr { index: 0, cache: 0 }; len];
+
+    cps_quicksort(provider, &mut pointers, &mut aux, offset, true);
+
+    // Write back sorted indices
+    for (i, p) in pointers.into_iter().enumerate() {
+        indices[i] = p.index;
+    }
+}
+
 /// Common Prefix Skipping Quicksort (CPS-QS).
 ///
 /// Recursively sorts the `ptrs` slice.
@@ -108,6 +195,7 @@ fn apply_permutation<T: Clone>(data: &mut [T], mut indices: Vec<usize>) {
 fn cps_quicksort<T: KeyAccessor + ?Sized>(
     provider: &T,
     ptrs: &mut [SortPtr],
+    aux: &mut [SortPtr],
     cp_len: usize,
     allow_radix: bool,
 ) {
@@ -115,7 +203,7 @@ fn cps_quicksort<T: KeyAccessor + ?Sized>(
 
     // Use Adaptive Radix Sort for large inputs if allowed
     if allow_radix && len > RADIX_SORT_THRESHOLD {
-        aqs_radix(provider, ptrs, cp_len);
+        aqs_radix(provider, ptrs, aux, cp_len);
         return;
     }
 
@@ -141,7 +229,12 @@ struct RadixCounts {
 /// 2. Computes prefix sums to determine bucket starting positions.
 /// 3. Permutes elements into a temporary buffer and writes them back in sorted bucket order.
 /// 4. Recursively calls `cps_quicksort` on each bucket.
-fn aqs_radix<T: KeyAccessor + ?Sized>(provider: &T, ptrs: &mut [SortPtr], mut cp_len: usize) {
+fn aqs_radix<T: KeyAccessor + ?Sized>(
+    provider: &T,
+    ptrs: &mut [SortPtr],
+    aux: &mut [SortPtr],
+    mut cp_len: usize,
+) {
     let mut bytes_since_load = 0; // Track how many bytes we consumed from the current cache load
 
     loop {
@@ -212,14 +305,22 @@ fn aqs_radix<T: KeyAccessor + ?Sized>(provider: &T, ptrs: &mut [SortPtr], mut cp
             });
 
         // 3. Permute using aux buffer
-        let buffer = ptrs.to_vec();
+        // SAFETY: We use a split mutable slice approach or safe copy.
+        // For simplicity and safety in this implementation, we copy FROM `ptrs` TO `aux` then back.
+        // Note: aux must be at least as large as ptrs. In recursive calls, `aux` is large enough for the whole array,
+        // but we only need the slice corresponding to `ptrs`.
+        let aux_slice = &mut aux[..ptrs.len()];
         let mut cur_offsets = offsets;
-        buffer.iter().for_each(|p| {
+
+        // This copy is necessary for stability/correctness in MSD Radix when doing permutation
+        for p in ptrs.iter() {
             let b = (p.cache >> 56) as u8;
             let pos = cur_offsets[b as usize];
-            ptrs[pos] = *p;
+            aux_slice[pos] = *p;
             cur_offsets[b as usize] += 1;
-        });
+        }
+
+        ptrs.copy_from_slice(aux_slice);
 
         // 4. Recurse on buckets
         let mut start = 0;
@@ -228,12 +329,13 @@ fn aqs_radix<T: KeyAccessor + ?Sized>(provider: &T, ptrs: &mut [SortPtr], mut cp
             let end = start + count;
             if end > start {
                 let bucket = &mut ptrs[start..end];
+                let aux_bucket = &mut aux[start..end]; // Pass corresponding aux slice
                 let new_cp = cp_len + 1;
 
                 update_caches(provider, bucket, new_cp);
 
                 let is_degenerate = (end - start) == total_len;
-                cps_quicksort(provider, bucket, new_cp, !is_degenerate);
+                cps_quicksort(provider, bucket, aux_bucket, new_cp, !is_degenerate);
             }
             start = end;
         });
